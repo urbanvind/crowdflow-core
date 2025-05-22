@@ -1,0 +1,270 @@
+package com.urbanvind.crowdflow
+
+import android.app.Service
+import android.content.Intent
+import android.os.Binder
+import android.os.IBinder
+import android.util.Log
+import com.facebook.react.bridge.ReactApplicationContext
+import com.urbanvind.crowdflow.core.CrowdFlowCore
+import com.urbanvind.crowdflow.core.SharedPreferencesManager
+
+
+class ForegroundService : Service() {
+
+    companion object {
+        private const val LOG_TAG = "ForegroundService"
+    }
+
+    inner class LocalBinder : Binder() {
+        fun getService(): ForegroundService = this@ForegroundService
+    }
+
+    private val binder = LocalBinder()
+
+    /**
+     * com.urbanvind.crowdflow.core.CrowdFlowCore is the primary entry point where all
+     * scanning, syncing, and configuration logic resides. Methods therein can be called
+     * from an implementation-specific module, like this one.
+     */
+    private lateinit var crowdFlowCore: CrowdFlowCore
+
+    override fun onCreate() {
+        super.onCreate()
+        crowdFlowCore = CrowdFlowCore(this)
+        crowdFlowCore.onCreate()
+        Log.d(LOG_TAG, "Service created")
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return crowdFlowCore.onStartCommand(intent, flags, startId)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        crowdFlowCore.onDestroy()
+        Log.d(LOG_TAG, "Service destroyed")
+    }
+
+    override fun onBind(intent: Intent?): IBinder = binder
+
+    /**
+     * Informs the service that the React Native context has been created.
+     * The service can now interact with the React Native bridge. React Native context
+     * is not strictly required for the service to function (e.g. scheduled scanning
+     * is not dependent on it).
+     */
+    fun onReactContextInitialized(context: ReactApplicationContext) {
+        Log.d(LOG_TAG, "React context has been initialized (ForegroundService).")
+        crowdFlowCore.onReactContextInitialized(context)
+    }
+
+    fun setReactContext(context: ReactApplicationContext) {
+        crowdFlowCore.setReactContext(context)
+    }
+
+    /**
+     * Initiates the BLE scanning workflow. Handles tasks like Bluetooth readiness
+     * checks, wake lock acquisition, and scheduling of periodic sync operations.
+     */
+    fun startScan() {
+        crowdFlowCore.startScan()
+    }
+
+    /**
+     * Disables the BLE scanning workflow. Releases resources such as wake locks
+     * and stops location and sync operations.
+     */
+    fun stopScan() {
+        crowdFlowCore.stopScan()
+    }
+
+    fun isScanActive(): Boolean = crowdFlowCore.isScanActive()
+
+
+    // Below are methods related to the configuration of the CrowdFlow app.
+    // A lot of these are probably not relevant for production use but some
+    // may be useful for testing or debugging.
+
+    /**
+     * Modifies the flag indicating whether the application
+     * has completed its first launch sequence.
+     */
+    fun setIsFirstLaunch(isFirstLaunch: Boolean) {
+        crowdFlowCore.setIsFirstLaunch(isFirstLaunch)
+    }
+
+    /**
+     * Modifies the flag indicating whether the application has
+     * been activated (either via a PIN code or an email).
+     */
+    fun setIsLocked(isLocked: Boolean) {
+        crowdFlowCore.setIsLocked(isLocked)
+    }
+
+    /**
+     * Updates the device UUID. Normally this is only performed
+     * during activation with the UUID returned from the server.
+     */
+    fun setUserUUID(value: String) {
+        crowdFlowCore.setUserUUID(value)
+    }
+
+    /**
+     * Changes the backend endpoint to which data is sent or synced.
+     */
+    fun setServer(value: String) {
+        crowdFlowCore.setServer(value)
+    }
+
+    /**
+     * Sets the vehicle type (e.g., single-decker bus, double-decker bus)
+     * associated with current scans.
+     * */
+    fun setVehicleType(value: String) {
+        crowdFlowCore.setVehicleType(value)
+    }
+
+    /**
+     * Toggles scheduled scans, allowing periodic scanning windows
+     * to be configured based on day of the week and time.
+     */
+    fun setIsScheduledScanEnabled(enabled: Boolean) {
+        crowdFlowCore.setIsScheduledScanEnabled(enabled)
+    }
+
+    /**
+     * Internal debugging flag. Has no effects on the app's functionality.
+     */
+    fun setRequireEstimationResult(enabled: Boolean) {
+        crowdFlowCore.setRequireEstimationResult(enabled)
+    }
+
+    /**
+     * Defines if the anonymisation salt should be refreshed automatically
+     * after extended periods of location inactivity.
+     */
+    fun setShouldRefreshSalt(enabled: Boolean) {
+        crowdFlowCore.setShouldRefreshSalt(enabled)
+    }
+
+    /**
+     * Assigns a list of rules that determine when scanning can occur based on day of week
+     * and time windows.
+     */
+    fun setScheduleRules(scheduleRules: List<SharedPreferencesManager.ScheduleRule>) {
+        crowdFlowCore.setScheduleRules(scheduleRules)
+    }
+
+    /**
+     * Toggles enforcement of geographic restrictions, ensuring scans only
+     * proceed in the pre-approved geo-fenced regions.
+     */
+    fun setIsGeoRestrictionEnabled(enabled: Boolean) {
+        crowdFlowCore.setIsGeoRestrictionEnabled(enabled)
+    }
+
+    /**
+     * Sets city-based restrictions to further limit scanning to certain
+     * geo-fenced regions.
+     */
+    fun setRestrictedCities(cities: List<SharedPreferencesManager.CityGeoRestriction>) {
+        crowdFlowCore.setRestrictedCities(cities)
+    }
+
+    /**
+     * Enables or disables data privacy features, such as anonymisation.
+     * This should always be enabled in production.
+     */
+    fun setIsDataPrivacyEnabled(enabled: Boolean) {
+        crowdFlowCore.setIsDataPrivacyEnabled(enabled)
+    }
+
+    /**
+     * Internal debugging flag. Has no effects on the app's functionality.
+     */
+    fun setDevStep(value: String) {
+        crowdFlowCore.setDevStep(value)
+    }
+
+    /**
+     * Toggles debug mode, which displays hidden options on the UI.
+     */
+    fun setIsDebugModeEnabled(enabled: Boolean) {
+        crowdFlowCore.setIsDebugModeEnabled(enabled)
+    }
+
+    /**
+     * Toggles calibration mode.
+     */
+    fun setIsCalibrationModeEnabled(enabled: Boolean) {
+        crowdFlowCore.setIsCalibrationModeEnabled(enabled)
+    }
+
+    /**
+     * Toggles debug information displayed on the main screen.
+     */
+    fun setShouldDisplayDebugInfo(enabled: Boolean) {
+        crowdFlowCore.setShouldDisplayDebugInfo(enabled)
+    }
+
+
+
+    // Below are methods related to the calibration process. They are probably
+    // not relevant for production use. The CrowdFlow app has a special
+    // calibration mode in which ground truth data can be manually entered
+    // during scanning.
+
+
+    fun startTrip() {
+        crowdFlowCore.startTrip()
+    }
+
+    fun endTrip() {
+        crowdFlowCore.endTrip()
+    }
+
+    fun setCalibrationTripName(value: String) {
+        crowdFlowCore.setCalibrationTripName(value)
+    }
+
+    fun setManualCalibrationCount(value: Int) {
+        crowdFlowCore.setManualCalibrationCount(value)
+    }
+
+    fun incrementCalibrationCount() {
+        crowdFlowCore.incrementCalibrationCount()
+    }
+
+    fun decrementCalibrationCount() {
+        crowdFlowCore.decrementCalibrationCount()
+    }
+
+    fun incrementCalibrationBoarding() {
+        crowdFlowCore.incrementCalibrationBoarding()
+    }
+
+    fun decrementCalibrationBoarding() {
+        crowdFlowCore.decrementCalibrationBoarding()
+    }
+
+    fun incrementCalibrationAlighting() {
+        crowdFlowCore.incrementCalibrationAlighting()
+    }
+
+    fun decrementCalibrationAlighting() {
+        crowdFlowCore.decrementCalibrationAlighting()
+    }
+
+    fun nextStop() {
+        crowdFlowCore.nextStop()
+    }
+
+    fun resetCalibration() {
+        crowdFlowCore.resetCalibration()
+    }
+
+    fun clearSharedPreferences() {
+        crowdFlowCore.clearSharedPreferences()
+    }
+}

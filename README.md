@@ -2,13 +2,14 @@
 
 Version: 0.0.1-alpha
 
+
 ## Features
 - background BLE scanning with configurable parameters
 - geo-restriction and schedule-based scanning rules
 - data anonymisation and payload building
 - periodic sync to backend via HTTP
 - wake lock management and foreground service support
-- react Native bridge event dispatching
+- React Native bridge event dispatching
 
 ## AndroidManifest requirements
 
@@ -35,30 +36,88 @@ The following permissions and components must be declared in your `AndroidManife
 
 ## Usage
 
-### 1. Implement a ForegroundService
-Copy or adapt the example `ForegroundService` from the sample file. It should:
+Integration is done by embedding a service that delegates all heavy lifting to `com.urbanvind.crowdflow.core.CrowdFlowCore`. The reference implementation of such a service is available in `ForegroundService.kt.example`.
+
+This service should:
 - instantiate `CrowdFlowCore` in `onCreate()`
 - forward `onStartCommand`, `onDestroy`, and binding methods to `CrowdFlowCore`
-- expose public methods such as `startScan()`, `stopScan()`, and configuration setters.
+- expose public methods such as `
 
-### 2. Start and bind the service
+### Service skeleton
+
 ```kotlin
-val intent = Intent(context, ForegroundService::class.java)
-ContextCompat.startForegroundService(context, intent)
+class ForegroundService : Service() {
+
+    companion object {
+        private const val LOG_TAG = "ForegroundService"
+    }
+
+    inner class LocalBinder : Binder() {
+        fun getService(): ForegroundService = this@ForegroundService
+    }
+
+    private val binder = LocalBinder()
+    private lateinit var crowdFlowCore: CrowdFlowCore
+
+    override fun onCreate() {
+        super.onCreate()
+        crowdFlowCore = CrowdFlowCore(this)
+        crowdFlowCore.onCreate()
+        Log.d(LOG_TAG, "Service created")
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return crowdFlowCore.onStartCommand(intent, flags, startId)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        crowdFlowCore.onDestroy()
+        Log.d(LOG_TAG, "Service destroyed")
+    }
+
+    override fun onBind(intent: Intent?): IBinder = binder
+
+    fun onReactContextInitialized(context: ReactApplicationContext) {
+        Log.d(LOG_TAG, "React context has been initialized (ForegroundService).")
+        crowdFlowCore.onReactContextInitialized(context)
+    }
+
+    fun setReactContext(context: ReactApplicationContext) {
+        crowdFlowCore.setReactContext(context)
+    }
+}
 ```
 
-### 3. Call API methods
+### Public API
 ```kotlin
-service.startScan()
-service.stopScan()
-service.setServer("https:prod.urbanvind.com")
+fun startScan() {
+    crowdFlowCore.startScan()
+}
+
+fun stopScan() {
+    crowdFlowCore.stopScan()
+}
+
+fun isScanActive(): Boolean = crowdFlowCore.isScanActive()
 ```
 
-### 4. React Native integration
-If you have a React Native host app, notify the service when the RN context is ready:
+### Key configuration helpers
+
 ```kotlin
-foregroundService.onReactContextInitialized(reactContext)
+fun setServer(value: String) {
+    crowdFlowCore.setServer(value)
+}
+
+fun setIsScheduledScanEnabled(enabled: Boolean) {
+    crowdFlowCore.setIsScheduledScanEnabled(enabled)
+}
+
+fun setIsGeoRestrictionEnabled(enabled: Boolean) {
+    crowdFlowCore.setIsGeoRestrictionEnabled(enabled)
+}
 ```
+
 
 ## Changelog
 

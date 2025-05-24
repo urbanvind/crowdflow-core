@@ -292,7 +292,7 @@ class CrowdFlowCore(private val service: Service) : DataSyncManager.SyncResultLi
     }
 
     override fun onSyncSuccessClearData() {
-        Log.d(LOG_TAG, "Sync successful, clearing scan results in manager.")
+        Log.d(LOG_TAG, "Sync success at "+ System.currentTimeMillis() +", clearing scan results.")
         bleScannerManager.clearScanResults()
     }
 
@@ -427,116 +427,114 @@ class CrowdFlowCore(private val service: Service) : DataSyncManager.SyncResultLi
 
     private fun createSyncRunnable(): Runnable = object : Runnable {
         override fun run() {
-            if (!isScanActive()) {
-                Log.d(LOG_TAG, "Sync task run check: Scan is not active. Stopping sync.")
-                return
-            }
-            Log.d(LOG_TAG, "Running sync task (CrowdFlowCore)...")
-            ensureActiveServiceScope()
-            val currentTime = System.currentTimeMillis()
-
-            // Refresh salt if location inactivity > 2 hours, and user enabled salt refresh
-            if ((currentTime - latestGpsFixTime >= 2 * 60 * 60 * 1000) && (currentTime - lastSaltRefreshTime >= 2 * 60 * 60 * 1000)) {
-                if (sharedPreferencesManager.shouldRefreshSalt) {
-                    lastSaltRefreshTime = currentTime
-                    dataAnonymiser.setSalt(SaltManager.generateNewSalt())
-                    Log.i(LOG_TAG, "Salt automatically refreshed due to location inactivity.")
-                } else {
-                    Log.d(LOG_TAG, "Salt refresh skipped: shouldRefreshSalt is false.")
+            try {
+                if (!isScanActive()) {
+                    Log.d(LOG_TAG, "Sync task run check: Scan is not active. Stopping sync.")
+                    return
                 }
-            }
+                Log.d(LOG_TAG, "Running sync task (CrowdFlowCore)...")
+                ensureActiveServiceScope()
+                val currentTime = System.currentTimeMillis()
 
-            val timeSinceStart =
-                if (scanStartedTimestamp > 0) currentTime - scanStartedTimestamp else 0
-            val currentDeviceCount =
-                bleScannerManager.getBleScanResults().size + bleScannerManager.getClassicScanResults().size
-
-            // Attempt to restart scan if device count remains very low for a certain time
-            if (currentDeviceCount < MIN_DEVICES_FOR_RESTART && timeSinceStart > MIN_SCAN_DURATION_BEFORE_RESTART_CHECK_MS) {
-                Log.w(
-                    LOG_TAG,
-                    "Low device count ($currentDeviceCount < $MIN_DEVICES_FOR_RESTART) for > 5 mins. Restarting scan..."
-                )
-                serviceScope.launch {
-                    bleScannerManager.stopScan()
-                    delay(500)
-                    if (isScanActive()) {
-                        if (!bleScannerManager.startScan()) {
-                            Log.e(
-                                LOG_TAG, "Failed to restart scan after low device count detected."
-                            )
-                            withContext(Dispatchers.Main) { stopScan() }
-                        } else {
-                            scanStartedTimestamp = System.currentTimeMillis()
-                            Log.i(LOG_TAG, "Scan successfully restarted due to low device count.")
-                        }
+                // Refresh salt if location inactivity > 2 hours, and user enabled salt refresh
+                if ((currentTime - latestGpsFixTime >= 2 * 60 * 60 * 1000) && (currentTime - lastSaltRefreshTime >= 2 * 60 * 60 * 1000)) {
+                    if (sharedPreferencesManager.shouldRefreshSalt) {
+                        lastSaltRefreshTime = currentTime
+                        dataAnonymiser.setSalt(SaltManager.generateNewSalt())
+                        Log.i(LOG_TAG, "Salt automatically refreshed due to location inactivity.")
                     } else {
-                        Log.d(
-                            LOG_TAG, "Scan was stopped externally during low-count restart attempt."
-                        )
+                        Log.d(LOG_TAG, "Salt refresh skipped: shouldRefreshSalt is false.")
                     }
                 }
-                rescheduleSync()
-                return
-            }
 
-            serviceScope.launch(Dispatchers.IO) {
+                val timeSinceStart =
+                    if (scanStartedTimestamp > 0) currentTime - scanStartedTimestamp else 0
+                val currentDeviceCount =
+                    bleScannerManager.getBleScanResults().size + bleScannerManager.getClassicScanResults().size
+
+                // Attempt to restart scan if device count remains very low for a certain time
+                if (currentDeviceCount < MIN_DEVICES_FOR_RESTART && timeSinceStart > MIN_SCAN_DURATION_BEFORE_RESTART_CHECK_MS) {
+                    Log.w(
+                        LOG_TAG,
+                        "Low device count ($currentDeviceCount < $MIN_DEVICES_FOR_RESTART) for > 5 mins. Restarting scan..."
+                    )
+                    serviceScope.launch(Dispatchers.Main) {
+                        Log.d(LOG_TAG, "Performing full scan restart via core methods.")
+                        stopScan()
+                        delay(500)
+                        startScan()
+                        scanStartedTimestamp = System.currentTimeMillis()
+                    }
+                    rescheduleSync()
+                    return
+                }
+
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        Log.d(LOG_TAG, "Gathering data for sync...")
+                        val bleScanResults = bleScannerManager.getBleScanResults()
+                        val classicScanResults = bleScannerManager.getClassicScanResults()
+                        val bleObservations = bleScannerManager.getBleObservations()
+                        val classicObservations = bleScannerManager.getClassicObservations()
+
+                        if (bleScanResults.isEmpty() && classicScanResults.isEmpty()) {
+                            Log.d(LOG_TAG, "No scan results found, skipping sync cycle.")
+                            withContext(Dispatchers.Main) { rescheduleSync() }
+                            return@launch
+                        }
+
+                        Log.d(
+                            LOG_TAG,
+                            "Processing ${bleScanResults.size} BLE and ${classicScanResults.size} Classic results for sync."
+                        )
+                        val currentLat = latestLatitude
+                        val currentLon = latestLongitude
+                        val currentFixTime = latestGpsFixTime
+
+                        val devicesData: List<Map<String, Any>> =
+                            bleScanResults.map { (address, scanResult) ->
+                                dataPayloadBuilder.createDataPayload(
+                                    scanResult,
+                                    bleObservations[address] ?: 1,
+                                    currentLat,
+                                    currentLon,
+                                    currentFixTime
+                                )
+                            }
+                        val classicData: List<Map<String, Any>> =
+                            classicScanResults.map { (address, intent) ->
+                                dataPayloadBuilder.createClassicPayload(
+                                    intent,
+                                    classicObservations[address] ?: 1,
+                                    currentLat,
+                                    currentLon,
+                                    currentFixTime
+                                )
+                            }
+                        val dataToSync = dataPayloadBuilder.buildSyncData(
+                            devicesData, classicData, currentLat, currentLon, currentFixTime
+                        )
+                        Log.d(LOG_TAG, "Data prepared, initiating sync via DataSyncManager...")
+                        dataSyncManager.syncData(dataToSync, currentLat, currentLon)
+                    } catch (e: Exception) {
+                        Log.e(
+                            LOG_TAG,
+                            "Error during data preparation or sync trigger: ${e.localizedMessage}",
+                            e
+                        )
+                    } finally {
+                        withContext(Dispatchers.Main) {
+                            rescheduleSync()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(LOG_TAG, "Error in syncRunnable: ${e.message}", e)
+            } finally {
                 try {
-                    Log.d(LOG_TAG, "Gathering data for sync...")
-                    val bleScanResults = bleScannerManager.getBleScanResults()
-                    val classicScanResults = bleScannerManager.getClassicScanResults()
-                    val bleObservations = bleScannerManager.getBleObservations()
-                    val classicObservations = bleScannerManager.getClassicObservations()
-
-                    if (bleScanResults.isEmpty() && classicScanResults.isEmpty()) {
-                        Log.d(LOG_TAG, "No scan results found, skipping sync cycle.")
-                        withContext(Dispatchers.Main) { rescheduleSync() }
-                        return@launch
-                    }
-
-                    Log.d(
-                        LOG_TAG,
-                        "Processing ${bleScanResults.size} BLE and ${classicScanResults.size} Classic results for sync."
-                    )
-                    val currentLat = latestLatitude
-                    val currentLon = latestLongitude
-                    val currentFixTime = latestGpsFixTime
-
-                    val devicesData: List<Map<String, Any>> =
-                        bleScanResults.map { (address, scanResult) ->
-                            dataPayloadBuilder.createDataPayload(
-                                scanResult,
-                                bleObservations[address] ?: 1,
-                                currentLat,
-                                currentLon,
-                                currentFixTime
-                            )
-                        }
-                    val classicData: List<Map<String, Any>> =
-                        classicScanResults.map { (address, intent) ->
-                            dataPayloadBuilder.createClassicPayload(
-                                intent,
-                                classicObservations[address] ?: 1,
-                                currentLat,
-                                currentLon,
-                                currentFixTime
-                            )
-                        }
-                    val dataToSync = dataPayloadBuilder.buildSyncData(
-                        devicesData, classicData, currentLat, currentLon, currentFixTime
-                    )
-                    Log.d(LOG_TAG, "Data prepared, initiating sync via DataSyncManager...")
-                    dataSyncManager.syncData(dataToSync, currentLat, currentLon)
+                    rescheduleSync()
                 } catch (e: Exception) {
-                    Log.e(
-                        LOG_TAG,
-                        "Error during data preparation or sync trigger: ${e.localizedMessage}",
-                        e
-                    )
-                } finally {
-                    withContext(Dispatchers.Main) {
-                        rescheduleSync()
-                    }
+                    Log.e(LOG_TAG, "Error rescheduling sync: ${e.message}", e)
                 }
             }
         }

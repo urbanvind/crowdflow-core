@@ -14,7 +14,7 @@ import kotlinx.coroutines.*
 class CrowdFlowCore(private val service: Service) : DataSyncManager.SyncResultListener {
 
     companion object {
-        private const val LOG_TAG = "ForegroundService"
+        private const val LOG_TAG = "CrowdFlowCore"
         private const val SYNC_PERIOD_MS = 10000L
         private const val FOREGROUND_NOTIFICATION_ID = 1
         private const val MIN_DEVICES_FOR_RESTART = 5

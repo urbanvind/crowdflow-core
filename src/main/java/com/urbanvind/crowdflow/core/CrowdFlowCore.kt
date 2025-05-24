@@ -189,15 +189,16 @@ class CrowdFlowCore(private val service: Service) : DataSyncManager.SyncResultLi
                 }
             }
             if (checksPassed) {
-                Log.d(LOG_TAG, "Initial location and geo checks passed. Starting BLE Scan.")
-                if (!bleScannerManager.startScan()) {
-                    Log.w(LOG_TAG, "BleScannerManager failed to start scan after checks. Stopping.")
-                    stopScan()
+                if (!bleScannerManager.isScanning) {          // start only if not running
+                    val started = bleScannerManager.startScan()
+                    if (started) {
+                        locationManager.stopLocationUpdates()
+                        Log.i(LOG_TAG, "Scan started; location updates paused.")
+                    } else {
+                        Log.e(LOG_TAG, "Failed to start scan; keeping location updates alive.")
+                    }
                 } else {
-                    Log.i(
-                        LOG_TAG,
-                        "Scan successfully started by BleScannerManager after initial checks."
-                    )
+                    Log.d(LOG_TAG, "Scan already active – skip restart.")
                 }
             } else {
                 Log.w(LOG_TAG, "Initial checks failed. Stopping scan initiated earlier.")

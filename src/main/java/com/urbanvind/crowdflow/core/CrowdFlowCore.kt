@@ -171,8 +171,7 @@ class CrowdFlowCore(private val service: Service) : DataSyncManager.SyncResultLi
                 "Location update received: Lat=$latestLatitude, Lon=$latestLongitude, Time=$latestGpsFixTime"
             )
             if (!isScanActive()) {
-                Log.d(LOG_TAG, "Scan stopped before location check completed. Aborting checks.")
-                locationManager.stopLocationUpdates()
+                Log.d(LOG_TAG, "Scan stopped before location checks completed. Aborting checks.")
                 return@startLocationUpdates
             }
             val geoRestrictionManager = GeoRestrictionManager(service.applicationContext)
@@ -189,11 +188,10 @@ class CrowdFlowCore(private val service: Service) : DataSyncManager.SyncResultLi
                 }
             }
             if (checksPassed) {
-                if (!bleScannerManager.isScanning) {          // start only if not running
+                if (!bleScannerManager.isScanning) {
                     val started = bleScannerManager.startScan()
                     if (started) {
-                        locationManager.stopLocationUpdates()
-                        Log.i(LOG_TAG, "Scan started; location updates paused.")
+                        Log.i(LOG_TAG, "Scan started; location updates will remain active.")
                     } else {
                         Log.e(LOG_TAG, "Failed to start scan; keeping location updates alive.")
                     }
@@ -206,6 +204,7 @@ class CrowdFlowCore(private val service: Service) : DataSyncManager.SyncResultLi
             }
         }
     }
+
 
     fun stopScan() {
         Log.d(LOG_TAG, "Stopping scan (CrowdFlowCore)...")
